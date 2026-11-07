@@ -1,0 +1,36 @@
+name: self-test
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  brew-install-and-open:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install from the tap with Homebrew
+        run: |
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          brew tap sumofficeapp/tap "https://github.com/SumOfficeApp/homebrew-tap"
+          brew install layers-open
+          brew test layers-open
+          layers-open --version
+      - name: A local file and a link open in Layers with text, edit and sign
+        run: |
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          A=$(layers-open --print samples/service-agreement.docx)
+          B=$(layers-open --print "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/samples/invoice.xlsx")
+          for U in "$A" "$B"; do
+            node --input-type=module -e '
+            const u = new URL(process.argv[1]);
+            const id = u.pathname.split("/").pop(), token = new URLSearchParams(u.hash.slice(1)).get("access_token");
+            const UA = { "User-Agent": "layers-open-self-test LayersQA-bot/1.0" };
+            const c = await fetch("https://app.layers.md/v1/public/viewer/" + id + "/content", { headers: { "X-Guest-Draft-Token": token, ...UA } });
+            const d = await c.json();
+            if (!c.ok || !d.html || !d.editorAction) throw new Error("content " + c.status + " " + JSON.stringify(d).slice(0, 200));
+            const s = await fetch("https://app.layers.md/t/sign-document-phone-whatsapp?draft=" + id + "&from=self-test", { headers: UA });
+            if (s.status !== 200) throw new Error("sign page " + s.status);
+            console.log("ok", d.fileName, d.kind, d.html.length + " chars");' "$U"
+          done

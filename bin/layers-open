@@ -1,0 +1,47 @@
+#!/bin/sh
+# layers-open 1.0.0: open a .docx, .xlsx or .pptx file in Layers to read, fill in and sign it.
+# MIT, SumOffice. The file is sent to Layers only to show it to you; the copy is a draft that expires in 24 hours.
+set -eu
+APP="https://app.layers.md"
+FROM="${LAYERS_FROM:-door-brew}"
+usage() {
+  cat <<'TXT'
+layers-open: open a .docx, .xlsx or .pptx file to read, fill in and sign it.
+
+  layers-open contract.docx            open a local file in your browser
+  layers-open https://site/price.xlsx  open a file by its public link
+  layers-open --print invoice.xlsx     print the link instead of opening it
+
+In the browser: read the document, edit it, send it for signature, or save
+a finished copy to your Layers account. Plans: https://layers.md/pricing
+TXT
+}
+PRINT=0
+case "${1:-}" in
+  ""|-h|--help) usage; exit 0 ;;
+  -v|--version) echo "layers-open 1.0.0"; exit 0 ;;
+  --print) PRINT=1; shift ;;
+esac
+[ $# -ge 1 ] || { usage; exit 1; }
+SRC="$1"
+enc() { printf %s "$1" | od -An -tx1 -v | tr -d ' \n' | sed 's/../%&/g'; }
+case "$SRC" in
+  http://*|https://*)
+    BODY=$(printf '{"url":"%s","from":"%s"}' "$(printf %s "$SRC" | sed 's/["\\]/\\&/g')" "$FROM")
+    JSON=$(curl -sS -X POST "$APP/v1/public/viewer/import" -H 'Content-Type: application/json' -A "layers-open/1.0.0" -d "$BODY") ;;
+  *)
+    [ -f "$SRC" ] || { echo "layers-open: no such file: $SRC" >&2; exit 1; }
+    case "$SRC" in *.docx|*.DOCX|*.xlsx|*.XLSX|*.pptx|*.PPTX) ;; *) echo "layers-open: only .docx, .xlsx and .pptx files" >&2; exit 1 ;; esac
+    NAME=$(basename "$SRC")
+    JSON=$(curl -sS -X POST "$APP/v1/public/viewer/upload?name=$(enc "$NAME")&from=$(enc "$FROM")" -H 'Content-Type: application/octet-stream' -A "layers-open/1.0.0" --data-binary @"$SRC") ;;
+esac
+URL=$(printf %s "$JSON" | sed -n 's/.*"openUrl":"\([^"]*\)".*/\1/p')
+if [ -z "$URL" ]; then
+  ERR=$(printf %s "$JSON" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
+  echo "layers-open: could not open the file (${ERR:-no answer})" >&2
+  exit 2
+fi
+if [ "$PRINT" = 1 ]; then echo "$URL"; exit 0; fi
+if command -v open >/dev/null 2>&1; then open "$URL"
+elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$URL" >/dev/null 2>&1
+else echo "$URL"; fi
