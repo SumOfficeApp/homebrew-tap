@@ -3,7 +3,9 @@
 **Open any .docx or .xlsx from the terminal as a page to read, fill in and sign. No office suite.**
 
 ```bash
-brew install sumofficeapp/tap/layers-open
+brew tap sumofficeapp/tap
+brew trust sumofficeapp/tap      # newer Homebrew asks to trust a tap once
+brew install layers-open
 layers-open contract.docx
 ```
 
